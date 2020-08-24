@@ -1,7 +1,7 @@
 /**
  * ol-ext - A set of cool extensions for OpenLayers (ol) in node modules structure
  * @description ol3,openlayers,popup,menu,symbol,renderer,filter,canvas,interaction,split,statistic,charts,pie,LayerSwitcher,toolbar,animation
- * @version v3.1.12
+ * @version v3.1.14
  * @author Jean-Marc Viglino
  * @see https://github.com/Viglino/ol-ext#,
  * @license BSD-3-Clause
@@ -1220,7 +1220,7 @@ ol.control.Search = function(options) {
   // Reverse geocode
   if (options.reverse) {
     var reverse = ol.ext.element.create('BUTTON', {
-      tyoe: 'button',
+      type: 'button',
       class: 'ol-revers',
       title: 'click on the map',
       click: function() {
@@ -1372,7 +1372,8 @@ ol.control.Search.prototype._handleSelect = function (f, reverse, options) {
     }
   }
   hist.unshift(f);
-  while (hist.length > (this.get('maxHistory')||10)) {
+  var size = Math.max(0, this.get('maxHistory')||10) || 0;
+  while (hist.length > size) {
     hist.pop();
   } 
   this.saveHistory();
@@ -7376,7 +7377,67 @@ ol.control.Profil.prototype.info = {
 */
 ol.control.Profil.prototype.popup = function(info) {
   this.popup_.innerHTML = info;
-}
+};
+/** Show point on profil
+ * @param {*} p 
+ * @param {number} dx 
+ * @private
+ */
+ol.control.Profil.prototype._drawAt = function(p, dx) {
+  if (p) {
+    this.cursor_.style.left = dx+"px";
+    this.cursor_.style.top = (this.canvas_.height-this.margin_.bottom+p[1]*this.scale_[1]+this.dy_)/this.ratio+"px";
+    this.cursor_.style.display = "block";
+    this.bar_.parentElement.classList.add("over");
+    this.bar_.style.left = dx+"px";
+    this.bar_.style.display = "block";
+    this.element.querySelector(".point-info .z").textContent = p[1]+this.info.altitudeUnits;
+    this.element.querySelector(".point-info .dist").textContent = (p[0]/1000).toFixed(1)+this.info.distanceUnitsKM;
+    this.element.querySelector(".point-info .time").textContent = p[2];
+    if (dx>this.canvas_.width/this.ratio/2) this.popup_.classList.add('ol-left');
+    else this.popup_.classList.remove('ol-left');
+  } else {
+    this.cursor_.style.display = "none";
+    this.bar_.style.display = 'none';
+    this.cursor_.style.display = 'none';  
+    this.bar_.parentElement.classList.remove("over");
+  }
+};
+/** Show point at coordinate on the profil
+ * @param { ol.coordinates||number } where a coordiniate or a distance from begining, if none it will hide the point
+ * @return { ol.coordinates } current point
+ */
+ol.control.Profil.prototype.showAt = function(where) {
+  var i, p, p0, d0 = Infinity;
+  if (typeof(where) === 'undefined') {
+    if (this.bar_.parentElement.classList.contains("over")) {
+      // Remove it
+      this._drawAt();
+    }
+  } else if (where.length) {
+    // Look for closest the point
+    for (i=1; p=this.tab_[i]; i++) {
+      var d = ol.coordinate.dist2d(p[3], where);
+      if (d<d0) {
+        p0 = p;
+        d0 = d;
+      } 
+    }
+  } else {
+    for (i=0; p=this.tab_[i]; i++) {
+      p0 = p;
+      if (p[0] > where) {
+        break;
+      } 
+    }
+  }
+  if (p0) {
+    var dx = (p0[0] * this.scale_[0] + this.margin_.left) / this.ratio;
+    this._drawAt(p0, dx);
+    return p0[3];
+  }
+  return null;
+};
 /** Mouse move over canvas
 */
 ol.control.Profil.prototype.onMove = function(e) {
@@ -7391,8 +7452,6 @@ ol.control.Profil.prototype.onMove = function(e) {
   var ratio = this.ratio;
   if (dx>this.margin_.left/ratio && dx<(this.canvas_.width-this.margin_.right)/ratio
     && dy>this.margin_.top/ratio && dy<(this.canvas_.height-this.margin_.bottom)/ratio) {
-      this.bar_.style.left = dx+"px";
-    this.bar_.style.display = "block";
     var d = (dx*ratio-this.margin_.left)/this.scale_[0];
     var p0 = this.tab_[0];
     for (var i=1, p; p=this.tab_[i]; i++) {
@@ -7401,25 +7460,11 @@ ol.control.Profil.prototype.onMove = function(e) {
         break;
       }
     }
-    if (p) {
-      this.cursor_.style.left = dx+"px";
-      this.cursor_.style.top = (this.canvas_.height-this.margin_.bottom+p[1]*this.scale_[1]+this.dy_)/ratio+"px";
-      this.cursor_.style.display = "block";
-    } else {
-      this.cursor_.style.display = "none";
-    }
-    this.bar_.parentElement.classList.add("over");
-    this.element.querySelector(".point-info .z").textContent = p[1]+this.info.altitudeUnits;
-    this.element.querySelector(".point-info .dist").textContent = (p[0]/1000).toFixed(1)+this.info.distanceUnitsKM;
-    this.element.querySelector(".point-info .time").textContent = p[2];
-    if (dx>this.canvas_.width/ratio/2) this.popup_.classList.add('ol-left');
-    else this.popup_.classList.remove('ol-left');
+    this._drawAt(p, dx);
     this.dispatchEvent({ type:'over', click:e.type=="click", coord: p[3], time: p[2], distance: p[0] });
   } else {
     if (this.bar_.parentElement.classList.contains("over")) {
-      this.bar_.style.display = 'none';
-      this.cursor_.style.display = 'none';
-      this.bar_.parentElement.classList.remove("over");
+      this._drawAt();
       this.dispatchEvent({ type:'out' });
     }
   }
@@ -13634,7 +13679,6 @@ ol.format.GeoRSS.prototype.readFeature = function(source, options) {
       coord.push([parseFloat(temp[i+1]), parseFloat(temp[i])]) 
     }
     g = new ol.geom.Polygon([coord]);
-    console.log(temp,coord)
     f.unset('georss:polygon');
   } else if (f.get('georss:where')) {
     // GML
@@ -13667,9 +13711,9 @@ ol.format.GeoRSS.prototype.readFeatures = function(source, options) {
   if (typeof(source)==='string') {
     var parser = new DOMParser();
     var xmlDoc = parser.parseFromString(source,"text/xml");
-    items = xmlDoc.getElementsByTagName('item');
+    items = xmlDoc.getElementsByTagName(this.getDocumentItemsTagName(xmlDoc));
   } else if (source instanceof Document) {
-    items = source.getElementsByTagName('item');
+    items = source.getElementsByTagName(this.getDocumentItemsTagName(source));
   } else if (source instanceof Node) {
     items = source;
   } else {
@@ -13682,6 +13726,21 @@ ol.format.GeoRSS.prototype.readFeatures = function(source, options) {
   }
   return features;
 };
+/**
+ * Get the tag name for the items in the XML Document depending if we are
+ * dealing with an atom base document or not.
+ * @param {Document} xmlDoc document to extract the tag name for the items
+ * @return {string} tag name
+ * @private
+ */
+ol.format.GeoRSS.prototype.getDocumentItemsTagName = function(xmlDoc) {
+  switch (xmlDoc.documentElement.tagName) {
+    case 'feed':
+      return 'entry';
+    default:
+      return 'item';
+  }
+}
 
 /*	Copyright (c) 2016 Jean-Marc VIGLINO, 
 	released under the CeCILL-B license (French BSD license)
@@ -17210,7 +17269,7 @@ ol.interaction.Ripple.prototype.postcompose_ = function(e) {
 /*
   Copyright (c) 2015 Jean-Marc VIGLINO, 
   released under the CeCILL-B license (http://www.cecill.info/).
-  ol.interaction.SelectCluster is an interaction for selecting vector features in a cluster.
+  ol/interaction/SelectCluster is an interaction for selecting vector features in a cluster.
 */
 /**
  * @classdesc
@@ -17466,6 +17525,19 @@ ol.interaction.SelectCluster.prototype.animateCluster_ = function(center, featur
   var feature = new ol.Feature(new ol.geom.Point(this.getMap().getView().getCenter()));
   feature.setStyle(new ol.style.Style({ image: new ol.style.Circle({}) }));
   this.overlayLayer_.getSource().addFeature(feature);
+};
+/** Helper function to get the extent of a cluster
+ * @param {ol.feature} feature
+ * @return {ol.extent|null} the extent or null if extent is empty (no cluster or superimposed points)
+ */
+ol.interaction.SelectCluster.prototype.getClusterExtent = function(feature) {
+  if (!feature.get('features')) return null;
+  var extent = ol.extent.createEmpty();
+  feature.get('features').forEach(function(f) {
+    extent = ol.extent.extend(extent, f.getGeometry().getExtent());
+  });
+  if (extent[0]===extent[2] && extent[1]===extent[3]) return null;
+  return extent;
 };
 
 /*	Copyright (c) 2016 Jean-Marc VIGLINO, 
@@ -20234,8 +20306,9 @@ ol.source.DayNight.prototype.getCoordinates = function (time, options) {
     default: {
       // Close polygon
       lat = (sunEqPos.delta < 0) ? 90 : -90;
-      lonlat.unshift([-180, lat]);
-      lonlat.push([180, lat]);
+      for(var tlon=180; tlon>=-180; tlon-=step){
+        lonlat.push([tlon,lat]);
+      }
       lonlat.push(lonlat[0])
       break;
     }
@@ -26515,19 +26588,19 @@ ol.style.Chart = function(opt_options) {
     snapToPixel: options.snapToPixel
   });
   if (options.scale) this.setScale(options.scale);
-  this.stroke_ = options.stroke;
-  this.radius_ = options.radius || 20;
-  this.donutratio_ = options.donutRatio || 0.5;
-  this.type_ = options.type;
-  this.offset_ = [options.offsetX ? options.offsetX : 0, options.offsetY ? options.offsetY : 0];
-  this.animation_ = (typeof(options.animation) == 'number') ? { animate:true, step:options.animation } : this.animation_ = { animate:false, step:1 };
-  this.max_ = options.max;
-  this.data_ = options.data;
+  this._stroke = options.stroke;
+  this._radius = options.radius || 20;
+  this._donutratio = options.donutRatio || 0.5;
+  this._type = options.type;
+  this._offset = [options.offsetX ? options.offsetX : 0, options.offsetY ? options.offsetY : 0];
+  this._animation = (typeof(options.animation) == 'number') ? { animate:true, step:options.animation } : this._animation = { animate:false, step:1 };
+  this._max = options.max;
+  this._data = options.data;
   if (options.colors instanceof Array) {
-    this.colors_ = options.colors;
+    this._colors = options.colors;
   } else {
-    this.colors_ = ol.style.Chart.colors[options.colors];
-    if(!this.colors_) this.colors_ = ol.style.Chart.colors.classic;
+    this._colors = ol.style.Chart.colors[options.colors];
+    if(!this._colors) this._colors = ol.style.Chart.colors.classic;
   }
   this.renderChart_();
 };
@@ -26547,17 +26620,17 @@ ol.style.Chart.colors = {
  */
 ol.style.Chart.prototype.clone = function() {
   var s = new ol.style.Chart({
-    type: this.type_,
-    radius: this.radius_,
+    type: this._type,
+    radius: this._radius,
     rotation: this.getRotation(),
     scale: this.getScale(),
     data: this.getData(),
     snapToPixel: this.getSnapToPixel ? this.getSnapToPixel() : false,
-    stroke: this.stroke_,
-    colors: this.colors_,
-    offsetX: this.offset_[0],
-    offsetY: this.offset_[1],
-    animation: this.animation_
+    stroke: this._stroke,
+    colors: this._colors,
+    offsetX: this._offset[0],
+    offsetY: this._offset[1],
+    animation: this._animation
   });
   s.setScale(this.getScale());
   s.setOpacity(this.getOpacity());
@@ -26566,26 +26639,26 @@ ol.style.Chart.prototype.clone = function() {
 /** Get data associatied with the chart
 */
 ol.style.Chart.prototype.getData = function() {
-  return this.data_;
+  return this._data;
 }
 /** Set data associatied with the chart
 *	@param {Array<number>}
 */
 ol.style.Chart.prototype.setData = function(data) {
-  this.data_ = data;
+  this._data = data;
   this.renderChart_();
 }
 /** Get symbol radius
 */
 ol.style.Chart.prototype.getRadius = function() {
-  return this.radius_;
+  return this._radius;
 }
 /** Set symbol radius
 *	@param {number} symbol radius
 *	@param {number} donut ratio
 */
 ol.style.Chart.prototype.setRadius = function(radius, ratio) {
-  this.radius_ = radius;
+  this._radius = radius;
   this.donuratio_ = ratio || this.donuratio_;
   this.renderChart_();
 }
@@ -26594,84 +26667,95 @@ ol.style.Chart.prototype.setRadius = function(radius, ratio) {
 */
 ol.style.Chart.prototype.setAnimation = function(step) {
   if (step===false) {
-    if (this.animation_.animate == false) return;
-    this.animation_.animate = false;
+    if (this._animation.animate == false) return;
+    this._animation.animate = false;
   } else {
-    if (this.animation_.step == step) return;
-    this.animation_.animate = true;
-    this.animation_.step = step;
+    if (this._animation.step == step) return;
+    this._animation.animate = true;
+    this._animation.step = step;
   }
   this.renderChart_();
 }
 /** @private
 */
-ol.style.Chart.prototype.renderChart_ = function() {
+ol.style.Chart.prototype.renderChart_ = function(pixelratio) {
+  if (!pixelratio) {
+    if (this.getPixelRatio) {
+      pixelratio = window.devicePixelRatio;
+      this.renderChart_(pixelratio);
+      if (this.getPixelRatio && pixelratio!==1) this.renderChart_(1); 
+    } else {
+      this.renderChart_(1);
+    }
+    return;
+  }
   var strokeStyle;
   var strokeWidth = 0;
-  if (this.stroke_)  {
-    strokeStyle = ol.color.asString(this.stroke_.getColor());
-    strokeWidth = this.stroke_.getWidth();
+  if (this._stroke)  {
+    strokeStyle = ol.color.asString(this._stroke.getColor());
+    strokeWidth = this._stroke.getWidth();
   }
   // no atlas manager is used, create a new canvas
-  var canvas = this.getImage();
+  var canvas = this.getImage(pixelratio);
   // draw the circle on the canvas
   var context = (canvas.getContext('2d'));
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.lineJoin = 'round';
   var sum=0;
   var i, c;
-  for (i=0; i<this.data_.length; i++) {
-    sum += this.data_[i];
+  for (i=0; i<this._data.length; i++) {
+    sum += this._data[i];
   }
+  context.save();
   // reset transform
-  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.setTransform(pixelratio, 0, 0, pixelratio, 0, 0);
   // then move to (x, y)
   context.translate(0,0);
-  var step = this.animation_.animate ? this.animation_.step : 1;
-  //console.log(this.animation_.step)
+  var step = this._animation.animate ? this._animation.step : 1;
+  //console.log(this._animation.step)
   // Draw pie
-  switch (this.type_) {
+  switch (this._type) {
     case "donut":
     case "pie3D":
     case "pie": {
       var a, a0 = Math.PI * (step-1.5);
-      c = canvas.width/2;
+      c = canvas.width/2/pixelratio;
       context.strokeStyle = strokeStyle;
       context.lineWidth = strokeWidth;
       context.save();
-      if (this.type_=="pie3D") {
+      if (this._type=="pie3D") {
         context.translate(0, c*0.3);
         context.scale(1, 0.7);
         context.beginPath();
         context.fillStyle = "#369";
-        context.arc ( c, c*1.4, this.radius_ *step, 0, 2*Math.PI);
+        context.arc ( c, c*1.4, this._radius *step, 0, 2*Math.PI);
         context.fill();
         context.stroke();
       }
-      if (this.type_=="donut") {
+      if (this._type=="donut") {
         context.save();
         context.beginPath();
         context.rect ( 0,0,2*c,2*c );
-        context.arc ( c, c, this.radius_ *step *this.donutratio_, 0, 2*Math.PI);
+        context.arc ( c, c, this._radius *step *this._donutratio, 0, 2*Math.PI);
         context.clip("evenodd");
       }
-      for (i=0; i<this.data_.length; i++) {
+      for (i=0; i<this._data.length; i++) {
         context.beginPath();
         context.moveTo(c,c);
-        context.fillStyle = this.colors_[i%this.colors_.length];
-        a = a0 + 2*Math.PI*this.data_[i]/sum *step;
-        context.arc ( c, c, this.radius_ *step, a0, a);
+        context.fillStyle = this._colors[i%this._colors.length];
+        a = a0 + 2*Math.PI*this._data[i]/sum *step;
+        context.arc ( c, c, this._radius *step, a0, a);
         context.closePath();
         context.fill();
         context.stroke();
         a0 = a;
       }
-      if (this.type_=="donut") {
+      if (this._type=="donut") {
         context.restore();
         context.beginPath();
         context.strokeStyle = strokeStyle;
         context.lineWidth = strokeWidth;
-        context.arc ( c, c, this.radius_ *step *this.donutratio_, Math.PI * (step-1.5), a0);
+        context.arc ( c, c, this._radius *step *this._donutratio, Math.PI * (step-1.5), a0);
         context.stroke();
       }
       context.restore();
@@ -26680,26 +26764,26 @@ ol.style.Chart.prototype.renderChart_ = function() {
     case "bar":
     default: {
       var max=0;
-      if (this.max_) {
-        max = this.max_;
+      if (this._max) {
+        max = this._max;
       } else {
-        for (i=0; i<this.data_.length; i++) {
-          if (max < this.data_[i]) max = this.data_[i];
+        for (i=0; i<this._data.length; i++) {
+          if (max < this._data[i]) max = this._data[i];
         }
       }
-      var s = Math.min(5,2*this.radius_/this.data_.length);
-      c = canvas.width/2;
-      var b = canvas.width - strokeWidth;
-      var x, x0 = c - this.data_.length*s/2
+      var s = Math.min(5,2*this._radius/this._data.length);
+      c = canvas.width/2/pixelratio;
+      var b = canvas.width/pixelratio - strokeWidth;
+      var x, x0 = c - this._data.length*s/2
       context.strokeStyle = strokeStyle;
       context.lineWidth = strokeWidth;
-      for (i=0; i<this.data_.length; i++) {
+      for (i=0; i<this._data.length; i++) {
         context.beginPath();
-        context.fillStyle = this.colors_[i%this.colors_.length];
+        context.fillStyle = this._colors[i%this._colors.length];
         x = x0 + s;
-        var h = this.data_[i]/max*2*this.radius_ *step;
+        var h = this._data[i]/max*2*this._radius *step;
         context.rect ( x0, b-h, s, h);
-        //console.log ( x0+", "+(b-this.data_[i]/max*2*this.radius_)+", "+x+", "+b);
+        //console.log ( x0+", "+(b-this._data[i]/max*2*this._radius)+", "+x+", "+b);
         context.closePath();
         context.fill();
         context.stroke();
@@ -26707,30 +26791,11 @@ ol.style.Chart.prototype.renderChart_ = function() {
       }
     }
   }
+  context.restore();
   // Set Anchor
   var anchor = this.getAnchor();
-  anchor[0] = c - this.offset_[0];
-  anchor[1] = c - this.offset_[1];
-};
-/**
- * @inheritDoc
- */
-ol.style.Chart.prototype.getChecksum = function() {
-  var strokeChecksum = (this.stroke_!==null) ?
-    this.stroke_.getChecksum() : '-';
-  var fillChecksum;
-  var recalculate = (this.checksums_===null) ||
-    (strokeChecksum != this.checksums_[1] ||
-    fillChecksum != this.checksums_[2] ||
-    this.radius_ != this.checksums_[3] ||
-    this.data_.join('|') != this.checksums_[4]);
-  if (recalculate) {
-    var checksum = 'c' + strokeChecksum + fillChecksum 
-      + ((this.radius_ !== void 0) ? this.radius_.toString() : '-')
-      + this.data_.join('|');
-    this.checksums_ = [checksum, strokeChecksum, fillChecksum, this.radius_, this.data_.join('|')];
-  }
-  return this.checksums_[0];
+  anchor[0] = c - this._offset[0];
+  anchor[1] = c - this._offset[1];
 };
 
 /*	Copyright (c) 2016 Jean-Marc VIGLINO, 
@@ -27654,26 +27719,36 @@ ol.style.FontSymbol.prototype.getFontInfo = function(glyph) {
 }
 /** @private
  */
-ol.style.FontSymbol.prototype.renderMarker_ = function() {
+ol.style.FontSymbol.prototype.renderMarker_ = function(pixelratio) {
+  if (!pixelratio) {
+    if (this.getPixelRatio) {
+      pixelratio = window.devicePixelRatio;
+      this.renderMarker_(pixelratio);
+      if (this.getPixelRatio && pixelratio!==1) this.renderMarker_(1); 
+    } else {
+      this.renderMarker_(1);
+    }
+    return;
+  }
   var strokeStyle;
   var strokeWidth = 0;
   if (this.stroke_) {
     strokeStyle = ol.color.asString(this.stroke_.getColor());
     strokeWidth = this.stroke_.getWidth();
   }
-  // no atlas manager is used, create a new canvas
-  var canvas = this.getImage();
+  // get canvas
+  var canvas = this.getImage(pixelratio);
   //console.log(this.getImage().width+" / "+(2 * (this.radius_ + strokeWidth) + 1));
   /** @type {ol.style.FontSymbol.RenderOptions} */
   var renderOptions = {
     strokeStyle: strokeStyle,
     strokeWidth: strokeWidth,
-    size: canvas.width,
+    size: canvas.width/pixelratio,
   };
   // draw the circle on the canvas
   var context = (canvas.getContext('2d'));
   context.clearRect(0, 0, canvas.width, canvas.height);
-  this.drawMarker_(renderOptions, context, 0, 0);
+  this.drawMarker_(renderOptions, context, 0, 0, pixelratio);
   // Set Anchor
   var a = this.getAnchor();
   a[0] = canvas.width / 2 - this.offset_[0];
@@ -27798,7 +27873,7 @@ ol.style.FontSymbol.prototype.drawPath_ = function(renderOptions, context) {
  * @param {number} x The origin for the symbol (x).
  * @param {number} y The origin for the symbol (y).
  */
-ol.style.FontSymbol.prototype.drawMarker_ = function(renderOptions, context, x, y) {
+ol.style.FontSymbol.prototype.drawMarker_ = function(renderOptions, context, x, y, pixelratio) {
   var fcolor = this.fill_ ? this.fill_.getColor() : "#000";
   var scolor = this.stroke_ ? this.stroke_.getColor() : "#000";
   if (this.form_ == "none" && this.stroke_ && this.fill_) {
@@ -27806,10 +27881,10 @@ ol.style.FontSymbol.prototype.drawMarker_ = function(renderOptions, context, x, 
     fcolor = this.stroke_.getColor();
   }
   // reset transform
-  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.setTransform(pixelratio, 0, 0, pixelratio, 0, 0);
   // then move to (x, y)
   context.translate(x, y);
-  var tr = this.drawPath_(renderOptions, context);
+  var tr = this.drawPath_(renderOptions, context, pixelratio);
   if (this.fill_) {
     if (this.gradient_ && this.form_!="none") {
       var grd = context.createLinearGradient(0,0,renderOptions.size/2,renderOptions.size);
@@ -27900,7 +27975,7 @@ ol.style.FontSymbol.prototype.getChecksum = function() {
 ol.style.Photo = function(options) {
   options = options || {};
   this.sanchor_ = options.kind=="anchored" ? 8:0;
-  this.shadow_ = Number(options.shadow) || 0;
+  this._shadow = (Number(options.shadow) || 0);
   if (!options.stroke) {
     options.stroke = new ol.style.Stroke({ width: 0, color: "#000"})
   }
@@ -27909,13 +27984,13 @@ ol.style.Photo = function(options) {
   if (options.kind=='folio') strokeWidth += 6;
   options.stroke.setWidth(strokeWidth);
   ol.style.RegularShape.call (this, {
-    radius: options.radius + strokeWidth + this.sanchor_/2 + this.shadow_/2, 
+    radius: options.radius + strokeWidth + this.sanchor_/2 + this._shadow/2, 
     points:0
   //	fill:new ol.style.Fill({color:"red"}) // No fill to create a hit detection Image
   });
   // Hack to get the hit detection Image (no API exported)
+  var img = this.getImage();
   if (!this.hitDetectionCanvas_) {
-    var img = this.getImage();
     for (var i in this) {
       if (this[i] && this[i].getContext && this[i]!==img) {
         this.hitDetectionCanvas_ = this[i];
@@ -27925,41 +28000,50 @@ ol.style.Photo = function(options) {
   }
   // Clone canvas for hit detection
   this.hitDetectionCanvas_ = document.createElement('canvas');
-  this.hitDetectionCanvas_.width = this.getImage().width;
-  this.hitDetectionCanvas_.height = this.getImage().height;
-  this.stroke_ = options.stroke;
-  this.fill_ = options.fill;
-  this.crop_ = options.crop;
-  this.crossOrigin_ = options.crossOrigin;
-  this.kind_ = options.kind || "default";
-  this.radius_ = options.radius;
-  this.src_ = options.src;
-  this.offset_ = [options.offsetX ? options.offsetX :0, options.offsetY ? options.offsetY :0];
-  this.onload_ = options.onload;
+  this.hitDetectionCanvas_.width = img.width;
+  this.hitDetectionCanvas_.height = img.height;
+  this._stroke = options.stroke;
+  this._fill = options.fill;
+  this._crop = options.crop;
+  this._crossOrigin = options.crossOrigin;
+  this._kind = options.kind || "default";
+  this._radius = options.radius;
+  this._src = options.src;
+  this._offset = [options.offsetX ? options.offsetX :0, options.offsetY ? options.offsetY :0];
+  this._onload = options.onload;
   if (typeof(options.opacity)=='number') this.setOpacity(options.opacity);
   if (typeof(options.rotation)=='number') this.setRotation(options.rotation);
   this.renderPhoto_();
 };
 ol.ext.inherits(ol.style.Photo, ol.style.RegularShape);
+/** Set photo offset
+ * @param {ol.pixel} offset
+ */
+ol.style.Photo.prototype.setOffset = function(offset) {
+  this._offset = [offset[0]||0, offset[1]||0];
+  this.renderPhoto_();
+};
 /**
  * Clones the style. 
  * @return {ol.style.Photo}
  */
 ol.style.Photo.prototype.clone = function() {
-  return new ol.style.Photo({
-    stroke: this.stroke_,
-    fill: this.fill_,
-    shadow: this.shadow_,
-    crop: this.crop_,
-    crossOrigin: this.crossOrigin_,
-    kind: this.kind_,
-    radius: this.radius_,
-    src: this.src_,
-    offsetX: this.offset_[0],
-    offsetY: this.offset_[1],
+  var i = new ol.style.Photo({
+    stroke: this._stroke,
+    fill: this._fill,
+    shadow: this._shadow,
+    crop: this._crop,
+    crossOrigin: this._crossOrigin,
+    kind: this._kind,
+    radius: this._radius,
+    src: this._src,
+    offsetX: this._offset[0],
+    offsetY: this._offset[1],
     opacity: this.getOpacity(),
     rotation: this.getRotation()
   });
+  i.renderPhoto_();
+  return i;
 };
 /**
  * Draws a rounded rectangle using the current state of the canvas. 
@@ -27990,25 +28074,29 @@ CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
  * Draw the form without the image
  * @private
  */
-ol.style.Photo.prototype.drawBack_ = function(context, color, strokeWidth) {
+ol.style.Photo.prototype.drawBack_ = function(context, color, strokeWidth, pixelratio) {
+  var shadow = this._shadow;
   var canvas = context.canvas;
   context.beginPath();
   context.fillStyle = color;
   context.clearRect(0, 0, canvas.width, canvas.height);
-  switch (this.kind_) {
+  var width = canvas.width/pixelratio;
+  var height = canvas.height/pixelratio;
+  switch (this._kind) {
     case 'square': {
-      context.rect(0,0,canvas.width-this.shadow_, canvas.height-this.shadow_);
+      context.rect(0,0, width-shadow, height-shadow);
       break;
     }
     case 'circle': {
-      context.arc(this.radius_+strokeWidth, this.radius_+strokeWidth, this.radius_+strokeWidth, 0, 2 * Math.PI, false);
+      context.arc(this._radius+strokeWidth, this._radius+strokeWidth, this._radius+strokeWidth, 0, 2 * Math.PI, false);
       break;
     }
     case 'folio': {
       var offset = 6;
       strokeWidth -= offset;
       context.strokeStyle = 'rgba(0,0,0,0.5)';
-      var w = canvas.width-this.shadow_-2*offset;
+      context.lineWidth = 1;
+      var w = width-shadow-2*offset;
       var a = Math.atan(6/w);
       context.save();
       context.rotate(-a);
@@ -28032,14 +28120,14 @@ ol.style.Photo.prototype.drawBack_ = function(context, color, strokeWidth) {
       break;
     }
     case 'anchored': {
-      context.roundRect(this.sanchor_/2,0,canvas.width-this.sanchor_-this.shadow_, canvas.height-this.sanchor_-this.shadow_, strokeWidth);
-      context.moveTo(canvas.width/2-this.sanchor_-this.shadow_/2,canvas.height-this.sanchor_-this.shadow_);
-      context.lineTo(canvas.width/2+this.sanchor_-this.shadow_/2,canvas.height-this.sanchor_-this.shadow_);
-      context.lineTo(canvas.width/2-this.shadow_/2,canvas.height-this.shadow_);break;
+      context.roundRect(this.sanchor_/2,0,width-this.sanchor_-shadow, height-this.sanchor_-shadow, strokeWidth);
+      context.moveTo(width/2-this.sanchor_-shadow/2,height-this.sanchor_-shadow);
+      context.lineTo(width/2+this.sanchor_-shadow/2,height-this.sanchor_-shadow);
+      context.lineTo(width/2-shadow/2,height-shadow);break;
     }
     default: {
       // roundrect
-      context.roundRect(0,0,canvas.width-this.shadow_, canvas.height-this.shadow_, strokeWidth);
+      context.roundRect(0,0,width-shadow, height-shadow, strokeWidth);
       break;
     }
   }
@@ -28048,34 +28136,45 @@ ol.style.Photo.prototype.drawBack_ = function(context, color, strokeWidth) {
 /**
  * @private
  */
-ol.style.Photo.prototype.renderPhoto_ = function() {
+ol.style.Photo.prototype.renderPhoto_ = function(pixelratio) {
+  if (!pixelratio) {
+    if (this.getPixelRatio) {
+      pixelratio = window.devicePixelRatio;
+      this.renderPhoto_(pixelratio);
+    } else {
+      this.renderPhoto_(1);
+    }
+    return;
+  }
   var strokeStyle;
   var strokeWidth = 0;
-  if (this.stroke_) {
-    strokeStyle = ol.color.asString(this.stroke_.getColor());
-    strokeWidth = this.stroke_.getWidth();
+  if (this._stroke) {
+    strokeStyle = ol.color.asString(this._stroke.getColor());
+    strokeWidth = this._stroke.getWidth();
   }
-  var canvas = this.getImage();
+  var canvas = this.getImage(pixelratio);
   // Draw hitdetection image
   var context = this.hitDetectionCanvas_.getContext('2d');
-  this.drawBack_(context,"#000",strokeWidth);
+  this.drawBack_(context,"#000",strokeWidth, 1);
   context.fill();
   // Draw the image
   context = canvas.getContext('2d');
-  this.drawBack_(context,strokeStyle,strokeWidth);
+  context.save();
+  context.setTransform(pixelratio, 0, 0, pixelratio, 0, 0);
+  this.drawBack_(context,strokeStyle,strokeWidth, pixelratio);
   // Draw a shadow
-  if (this.shadow_) {
+  if (this._shadow) {
     context.shadowColor = 'rgba(0,0,0,0.5)';
-    context.shadowBlur = this.shadow_/2;
-    context.shadowOffsetX = this.shadow_/2;
-    context.shadowOffsetY = this.shadow_/2;
+    context.shadowBlur = pixelratio*this._shadow/2;
+    context.shadowOffsetX = pixelratio*this._shadow/2;
+    context.shadowOffsetY = pixelratio*this._shadow/2;
   }
   context.fill();
-  context.shadowColor = 'transparent';
+  context.restore();
   var self = this;
   var img = this.img_ = new Image();
-  if (this.crossOrigin_) img.crossOrigin = this.crossOrigin_;
-  img.src = this.src_;
+  if (this._crossOrigin) img.crossOrigin = this._crossOrigin;
+  img.src = this._src;
   // Draw image
   if (img.width) {
     self.drawImage_(img);
@@ -28084,15 +28183,16 @@ ol.style.Photo.prototype.renderPhoto_ = function() {
       self.drawImage_(img);
       // Force change (?!)
       // self.setScale(1);
-      if (self.onload_) self.onload_();
+      if (self._onload) self._onload();
     };
   }
   // Set anchor
   var a = this.getAnchor();
-  a[0] = (canvas.width - this.shadow_)/2;
-  a[1] = (canvas.height - this.shadow_)/2;
+  a[0] = (canvas.width/pixelratio - this._shadow)/2  - this._offset[0];
   if (this.sanchor_) {
-    a[1] = canvas.height - this.shadow_;
+    a[1] = canvas.height/pixelratio - this._shadow - this._offset[1];
+  } else {
+    a[1] = (canvas.height/pixelratio - this._shadow)/2 - this._offset[1];
   }
 };
 /**
@@ -28100,21 +28200,22 @@ ol.style.Photo.prototype.renderPhoto_ = function() {
  * @private
  */
 ol.style.Photo.prototype.drawImage_ = function(img) {
-  var canvas = this.getImage();
+  var pixelratio = window.devicePixelRatio;
+  var canvas = this.getImage(pixelratio);
   // Remove the circle on the canvas
   var context = (canvas.getContext('2d'));
   var strokeWidth = 0;
-  if (this.stroke_) strokeWidth = this.stroke_.getWidth();
-  var size = 2*this.radius_;
+  if (this._stroke) strokeWidth = this._stroke.getWidth();
+  var size = 2*this._radius;
   context.save();
-  if (this.kind_=='circle') {
+  if (this._kind=='circle') {
     context.beginPath();
-    context.arc(this.radius_+strokeWidth, this.radius_+strokeWidth, this.radius_, 0, 2 * Math.PI, false);
+    context.arc(this._radius+strokeWidth, this._radius+strokeWidth, this._radius, 0, 2 * Math.PI, false);
     context.clip();
   }
   var s, x, y, w, h, sx, sy, sw, sh;
   // Crop the image to a square vignette
-  if (this.crop_) {
+  if (this._crop) {
     s = Math.min (img.width/size, img.height/size);
     sw = sh = s*size;
     sx = (img.width-sw)/2;
@@ -28137,11 +28238,11 @@ ol.style.Photo.prototype.drawImage_ = function(img) {
   context.drawImage(img, sx, sy, sw, sh, x, y, w, h);
   context.restore();
   // Draw a circle to avoid aliasing on clip
-  if (this.kind_=='circle' && strokeWidth) {
+  if (this._kind=='circle' && strokeWidth) {
     context.beginPath();
-    context.strokeStyle = ol.color.asString(this.stroke_.getColor());
+    context.strokeStyle = ol.color.asString(this._stroke.getColor());
     context.lineWidth = strokeWidth/4;
-    context.arc(this.radius_+strokeWidth, this.radius_+strokeWidth, this.radius_, 0, 2 * Math.PI, false);
+    context.arc(this._radius+strokeWidth, this._radius+strokeWidth, this._radius, 0, 2 * Math.PI, false);
     context.stroke();
   }
 };
@@ -28359,107 +28460,90 @@ CanvasRenderingContext2D.prototype.textPath = function (text, path)
 //NB: (Not confirmed)To use this module, you just have to :
 //   import('ol-ext/layer/getpreview')
 /*	Copyright (c) 2015 Jean-Marc VIGLINO, 
-	released under the CeCILL-B license (French BSD license)
-	(http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt).
+  released under the CeCILL-B license (French BSD license)
+  (http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt).
 *
 *  Shadow image style for point vector features
 */
-/**
- * @requires ol.style.Circle
- * @requires ol.structs.IHasChecksum
- */
 /**
  * @classdesc
  * Set Shadow style for point vector features.
  *
  * @constructor
  * @param {} options Options.
- *   @param {ol.style.Fill | undefined} options.fill fill style, default rgba(0,0,0,0.5)
- *   @param {number} options.radius point radius
- * 	 @param {number} options.blur lur radius, default radius/3
- * 	 @param {number} options.offsetX x offset, default 0
- * 	 @param {number} options.offsetY y offset, default 0
+ *  @param {ol.style.Fill | undefined} options.fill fill style, default rgba(0,0,0,0.5)
+ *  @param {number} options.radius point radius
+ * 	@param {number} options.blur lur radius, default radius/3
+ * 	@param {number} options.offsetX x offset, default 0
+ * 	@param {number} options.offsetY y offset, default 0
  * @extends {ol.style.RegularShape}
- * @implements {ol.structs.IHasChecksum}
  * @api
  */
-ol.style.Shadow = function(options)
-{	options = options || {};
-	if (!options.fill) options.fill = new ol.style.Fill({ color: "rgba(0,0,0,0.5)" });
-	ol.style.RegularShape.call (this,{ radius: options.radius, fill: options.fill });
-	this.fill_ = options.fill;
-	this.radius_ = options.radius;
-	this.blur_ = options.blur===0 ? 0 : options.blur || options.radius/3;
-	this.offset_ = [options.offsetX ? options.offsetX : 0, options.offsetY ? options.offsetY : 0];
-	this.renderShadow_();
+ol.style.Shadow = function(options) {
+  options = options || {};
+  if (!options.fill) options.fill = new ol.style.Fill({ color: "rgba(0,0,0,0.5)" });
+  ol.style.RegularShape.call (this,{ radius: options.radius, fill: options.fill });
+  this._fill = options.fill;
+  this._radius = options.radius;
+  this._blur = options.blur===0 ? 0 : options.blur || options.radius/3;
+  this._offset = [options.offsetX ? options.offsetX : 0, options.offsetY ? options.offsetY : 0];
+  this.renderShadow_();
 };
 ol.ext.inherits(ol.style.Shadow, ol.style.RegularShape);
 /**
  * Clones the style. 
  * @return {ol.style.Shadow}
  */
-ol.style.Shadow.prototype.clone = function()
-{	var s = new ol.style.Shadow(
-	{	fill: this.fill_,
-		radius: this.radius_,
-		blur: this.blur_,
-		offsetX: this.offset_[0],
-		offsetY: this.offset_[1]
-	});
-	s.setScale(this.getScale());
-	s.setOpacity(this.getOpacity());
-	return s;
+ol.style.Shadow.prototype.clone = function() {
+  var s = new ol.style.Shadow({
+    fill: this._fill,
+    radius: this._radius,
+    blur: this._blur,
+    offsetX: this._offset[0],
+    offsetY: this._offset[1]
+  });
+  s.setScale(this.getScale());
+  s.setOpacity(this.getOpacity());
+  return s;
 };
 /**
  * @private
  */
-ol.style.Shadow.prototype.renderShadow_ = function()
-{	
-	var radius = this.radius_;
-	var canvas = this.getImage();
-	var s = [canvas.width, canvas.height];
-	s[1] = radius;
-	// Remove the circle on the canvas
-	var context = (canvas.getContext('2d'));
-	context.beginPath();
-	context.clearRect(0, 0, canvas.width, canvas.height);
-	context.scale(1,0.5);
-	context.arc(radius, -radius, radius-this.blur_, 0, 2 * Math.PI, false);
+ol.style.Shadow.prototype.renderShadow_ = function(pixelratio) {	
+  if (!pixelratio) {
+    if (this.getPixelRatio) {
+      pixelratio = window.devicePixelRatio;
+      this.renderShadow_(pixelratio);
+      if (this.getPixelRatio && pixelratio!==1) this.renderShadow_(1); 
+    } else {
+      this.renderShadow_(1);
+    }
+    return;
+  }
+  var radius = this._radius;
+  var canvas = this.getImage(pixelratio);
+  // Remove the circle on the canvas
+  var context = (canvas.getContext('2d'));
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.save();
+  context.beginPath();
+    context.setTransform(pixelratio, 0, 0, pixelratio, 0, 0);
+    context.scale(1,0.5);
+    context.arc(radius, -radius, radius-this._blur, 0, 2 * Math.PI, false);
     context.fillStyle = '#000';
-	context.shadowColor = this.fill_.getColor();
-	context.shadowBlur = 0.7*this.blur_;
-	context.shadowOffsetX = 0;
-	context.shadowOffsetY = 1.5*radius;
-	context.closePath();
-    context.fill();
-	context.shadowColor = 'transparent';
-	// Set anchor
-	var a = this.getAnchor();
-	a[0] = canvas.width /2 -this.offset_[0];
-	a[1] = canvas.height/2 -this.offset_[1];
+    context.shadowColor = this._fill.getColor();
+    context.shadowBlur = 0.7*this._blur*pixelratio;
+    context.shadowOffsetX = 0;
+    context.shadowOffsetY = 1.5*radius*pixelratio;
+  context.closePath();
+  context.fill();
+  context.shadowColor = 'transparent';
+  context.restore();
+  // Set anchor
+  var a = this.getAnchor();
+  a[0] = canvas.width /2 - this._offset[0];
+  a[1] = canvas.height /2 - this._offset[1];
 }
-/**
- * @inheritDoc
- */
-ol.style.Shadow.prototype.getChecksum = function()
-{
-	var strokeChecksum = (this.stroke_!==null) ?
-		this.stroke_.getChecksum() : '-';
-	var fillChecksum = (this.fill_!==null) ?
-		this.fill_.getChecksum() : '-';
-	var recalculate = (this.checksums_===null) ||
-		(strokeChecksum != this.checksums_[1] ||
-		fillChecksum != this.checksums_[2] ||
-		this.radius_ != this.checksums_[3] ||
-		this.form_+"-"+this.glyphs_ != this.checksums_[4]);
-	if (recalculate) {
-		var checksum = 'c' + strokeChecksum + fillChecksum 
-			+ ((this.radius_ !== void 0) ? this.radius_.toString() : '-')
-			+ this.form_+"-"+this.glyphs_;
-		this.checksums_ = [checksum, strokeChecksum, fillChecksum, this.radius_, this.form_+"-"+this.glyphs_];
-	}
-	return this.checksums_[0];
-};
 
 /*	Copyright (c) 2018 Jean-Marc VIGLINO, 
 	released under the CeCILL-B license (French BSD license)
